@@ -3,74 +3,15 @@ from typing import List, Dict, Any
 
 from llm_api import get_llm_response
 from custom_types import Plan, PlanStep
+# The StateManager import is no longer needed if we pass the prompt directly,
+# but it's good practice if the Planner needs other things from state in the future.
+# from state_manager import StateManager
 
 class Planner:
     """
     负责任务规划和重新规划。
     它将用户的高级请求分解为一系列可执行的逻辑步骤,并在执行失败时调整计划。
     """
-
-    def _get_planner_prompt(self, user_query: str, context: str) -> str:
-        """
-        构建用于生成初始计划的 Planner Prompt。
-        """
-        return f"""
-You are an expert data analysis planner. Your task is to create a concise, step-by-step plan to answer the user's request.
-
-**IMPORTANT RULES:**
-1.  **Be Concise**: Generate the minimum number of steps required. If the entire request can be accomplished in a single step, create only one step. Combine related tasks into a single, logical step.
-2.  **Analyze Context**: The user's data is already available in the workspace. The context below shows available files and existing DataFrame summaries. Do NOT add a step to load data if a DataFrame with the same data already exists. The first step should be using the existing dataframes.
-3.  **Focus on Code**: The plan should only contain steps that can be executed as code. Do not include any plotting steps.
-
-**Workspace Context:**
-{context}
-
-**User Request:**
-{user_query}
-
-**Your Plan (must be a JSON list of objects in Chinese):**
-`[
-    {{"step_id": 1, "task": "First logical step..."}},
-    ...
-    {{"step_id": N, "task": "Last logical step..."}}
-]`
-"""
-
-    def _get_replanner_prompt(self, user_query: str, context: str, failed_task_desc: str, error_message: str) -> str:
-        """
-        构建用于在任务失败后重新规划的 Re-Planner Prompt。
-        """
-        # Prompt is in English, as requested.
-        return f"""
-You are an expert data analysis re-planner. A previous plan failed to execute. Your task is to create a new, corrected, and complete plan.
-
-**Original User Request:**
-{user_query}
-
-**Context of the Failure:**
-- **Failed Step:** {failed_task_desc}
-- **Error Message:** {error_message}
-
-**Current Workspace Context:**
-{context}
-
-**Your Task:**
-Based on the failure, create a **new and complete** plan to fulfill the user's request. The plan must be concise and correct the error.
-
-**IMPORTANT RULES:**
-1.  **Be Concise**: Generate the minimum number of steps required.
-2.  **Output Format**: You MUST return a JSON list of objects.
-3.  **Correct the Error**: Your new plan must address the root cause of the error.
-4.  **Completeness**: The plan should cover all steps from the current state to the final answer.
-5.  **Focus on Code**: The plan should only contain steps that can be executed as code. Do not include any plotting steps.
-
-**New JSON Plan (must be a JSON list of objects in Chinese):**
-`[
-    {{"step_id": 1, "task": "First step of the new plan..."}},
-    ...
-    {{"step_id": N, "task": "Last step of the new plan..."}}
-]`
-"""
 
     def print_plan(self, plan: List[PlanStep]):
         print(f"\n[Plan]:")
@@ -80,20 +21,18 @@ Based on the failure, create a **new and complete** plan to fulfill the user's r
             print(f"Step {step['step_id']} ({status}): {step['task']}")
         return
 
-    def generate_plan(self, user_query: str, context: str) -> List[PlanStep]:
+    def generate_plan(self, prompt: str) -> List[PlanStep]:
         """
         根据用户请求和当前上下文生成一个初始计划。
 
         Args:
-            user_query (str): 用户的原始数据分析请求。
-            context (str): 当前的状态上下文。
+            prompt (str): 由 StateManager 生成的、包含用户请求和上下文的完整 Prompt。
 
         Returns:
             List[Dict[str, Any]]: 一个包含计划步骤的列表。
         """
         print("Generating a new plan...")
-        prompt = self._get_planner_prompt(user_query, context)
-
+        
         response_json = get_llm_response(prompt)
         
         # 健壮性检查: 确保返回的是列表
@@ -116,21 +55,17 @@ Based on the failure, create a **new and complete** plan to fulfill the user's r
             # Return a default failure plan
             return [{"step_id": 1, "task": "Planner failed to generate a valid plan.", "status": "failed"}]
 
-    def replan(self, user_query: str, context: str, failed_task_desc: str, error_message: str) -> List[PlanStep]:
+    def replan(self, prompt: str) -> List[PlanStep]:
         """
         在任务执行失败后,生成一个全新的计划。
 
         Args:
-            user_query (str): 用户的原始请求。
-            context (str): 当前的状态上下文。
-            failed_task_desc (str): 失败的步骤的描述。
-            error_message (str): 执行失败时返回的错误信息。
+            prompt (str): 由 StateManager 生成的、用于重新规划的完整 Prompt。
 
         Returns:
             List[Dict[str, Any]]: 一个新的计划步骤列表。
         """
         print("Previous plan failed. Generating a new plan (re-planning)...")
-        prompt = self._get_replanner_prompt(user_query, context, failed_task_desc, error_message)
         response_json = get_llm_response(prompt)
 
         if isinstance(response_json, list) and all(isinstance(item, dict) for item in response_json):

@@ -50,11 +50,11 @@ Plan = List[PlanStep]
 
 class Interaction(TypedDict):
     """
-    Represents a single, complete interaction cycle, from user query
-    to a planned and executed series of steps.
+    代表一个完整的交互周期,从用户查询到一系列计划和执行的步骤。
     """
     query: str
     plan: Plan
+    validation_result: Optional[Dict[str, str]]
 
 
 class WorkerResult(TypedDict):

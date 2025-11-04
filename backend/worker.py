@@ -29,50 +29,6 @@ class Worker:
             "execute_python": self._tool_execute_python,
         }
 
-    def _get_worker_prompt(self, task_description: str, context: str) -> str:
-        """
-        构建用于工具调用的 Worker Prompt。
-        """
-        return f"""
-You are an expert Python data analysis executor. Your task is to execute a single step in a larger plan.
-
-Your **only** goal is to complete the current step: **{task_description}**
-
-Carefully review the context provided below, especially the code that has already been executed.
-Then, write the Python code needed to complete the current step.
-
-You must call a tool to complete the task. Your response must be a single JSON object with 'thought' and 'tool_call'.
-
-**## Available Tools**
-
-1. `execute_python(code: str)`
-    - Description: Executes Python code in a stateful sandbox. The sandbox has `pandas` installed.
-    - Use `print()` to output text results.
-    - The sandbox remembers variables from previous executions (e.g., `df`).
-
-**## Workspace Context**
-{context}
-
-**## Instructions for Your Response**
-1.  **Focus**: Write code ONLY for the current task: `{task_description}`.
-2.  **Idempotency**: Ensure your code is idempotent. It should be safely runnable multiple times without causing errors.
-3.  **No Repetition**: DO NOT repeat code that has already been executed, including library imports like `import pandas as pd`. You can use all variables and DataFrames created in previous steps.
-4.  **MANDATORY**: The code you generate MUST end with a `print()` statement to output the final result. Do not omit this step.
-
-**## Your Response (JSON):**
-```json
-{{
-  "thought": "I will analyze the task and decide which tool to use...",
-  "tool_call": {{
-    "tool_name": "execute_python",
-    "arguments": {{
-      "arg1_name": "value1"
-    }}
-  }}
-}}
-```
-"""
-
     def _tool_execute_python(self, code: str) -> Dict[str, Any]:
         """
         执行 Python 代码的工具,并自动同步执行后的状态。
@@ -112,7 +68,7 @@ You must call a tool to complete the task. Your response must be a single JSON o
         current_context = context
         
         while retry_count < max_retries:
-            prompt = self._get_worker_prompt(task_description, current_context)
+            prompt = self.state_manager.get_worker_prompt(task_description, current_context)
 
             # print(f"\n===== Prompt:  =====")
             # print(prompt)

@@ -17,44 +17,35 @@ class Orchestrator:
         self.code_executor = CodeExecutor()
         self.planner = Planner()
         self.worker = Worker(self.code_executor, self.state_manager)
+        self.max_analysis_cycles = 3 # max retries for the analysis loop
 
-    def _generate_final_summary(self, last_code_execution_result: str) -> str:
+    def _validate_and_summarize(self, last_code_execution_result: str) -> Dict[str, Any]:
         """
-        Generates the final natural language summary after all steps succeed.
+        Validates if the analysis is complete and generates a summary, or provides feedback for re-planning.
         """
-        
-        current_query = self.state_manager.interactions[-1]['query']
+        current_interaction = self.state_manager.interactions[-1]
+        current_query = current_interaction['query']
+        current_plan = current_interaction['plan']
         full_script = "\n".join(self.state_manager.executed_code_blocks)
 
-        summary_prompt = f"""
-You are an expert data analyst. Your task is to provide a comprehensive, easy-to-understand summary in Chinese for a data analysis request.
-A user asked the following question:
----
-{current_query}
----
+        validation_prompt = self.state_manager.get_validation_prompt(
+            current_query=current_query,
+            current_plan=current_plan,
+            full_script=full_script,
+            last_code_execution_result=last_code_execution_result
+        )
+        
+        response = get_llm_response(validation_prompt, response_format_type='json_object')
+        
+        # Ensure the response has a status, default to incomplete if missing
+        if 'status' not in response:
+            response['status'] = 'incomplete'
+            response['reason'] = 'The validation model returned an invalid format.'
 
-To answer this question, the following Python script was executed:
----
-<script>
-{full_script}
-</script>
----
-
-The script produced the following final output:
----
-<output>
-{last_code_execution_result}
-</output>
----
-
-Based on all the information above, please provide a final, natural-language answer to the user's original question.
-- Explain what was done.
-- Present the key findings.
-- Directly answer the user's question.
-- Your entire response must be in Chinese.
-"""
-        summary = get_llm_response(summary_prompt, response_format_type='text')
-        return summary
+        # Save the validation result to the state
+        self.state_manager.set_validation_result(response)
+            
+        return response
 
     def load_csvs(self, user_file_paths: List[str]):
         """
@@ -114,72 +105,106 @@ Based on all the information above, please provide a final, natural-language ans
         
         # 2. Generate the initial plan
         planner_context = self.state_manager.get_planner_context()
-        plan = self.planner.generate_plan(user_query, planner_context)
+        planner_prompt = self.state_manager.get_planner_prompt(user_query, planner_context)
+        plan = self.planner.generate_plan(planner_prompt)
         self.state_manager.set_plan(plan)
 
-        # 3. Execute the plan step by step
-        current_step_index = 0
-        last_code_execution_result = ""
-        plan_succeeded = True
-
-        current_plan = self.state_manager.interactions[-1]['plan']
-        while current_plan[0]['status'] != 'failed' and current_step_index < len(current_plan):
-            current_step = current_plan[current_step_index]
-            task_description = current_step.get("task", "No description")
+        # Outer loop for analysis and validation cycles
+        for cycle in range(self.max_analysis_cycles):
             
-            # Update step status to 'in_progress'
-            self.state_manager.update_plan_step_status(current_step["step_id"], "in_progress")
-
-            print(f"\n[Executing Step {current_step['step_id']}/{len(current_plan)}]:\n{task_description}")
-
-            # Get the detailed context for the worker
-            worker_context = self.state_manager.get_worker_context(current_step)
-            result = self.worker.execute_task(task_description, worker_context)
-
-            if result['status'] == 'success':
-                # On success, log the code, update status, and move to the next step
-                self.state_manager.add_executed_code_block(
-                    code=result['code'],
-                    step_id=current_step["step_id"],
-                    result=result.get('result', '')
-                )
-                self.state_manager.update_plan_step_status(current_step["step_id"], "completed")
-                if result.get('result'): # If there is any stdout, store it
-                    last_code_execution_result = result['result']
-                current_step_index += 1
-
-            elif result['status'] == 'failed':
-                # On failure, trigger the re-planning process
-                plan_succeeded = False
-                error_message = result['error']
-                failed_task = result['task']
-                print(f"\n[Step {current_step['step_id']} Failed]:\n{error_message}")
-                self.state_manager.update_plan_step_status(current_step["step_id"], "failed")
+            # 3. Execute the plan step by step
+            current_step_index = 0
+            last_code_execution_result = ""
+            plan_succeeded = True
+            
+            current_plan = self.state_manager.interactions[-1]['plan']
+            while current_plan and current_plan[0].get('status') != 'failed' and current_step_index < len(current_plan):
+                current_step = current_plan[current_step_index]
+                task_description = current_step.get("task", "No description")
                 
-                # Get planner context and re-plan
+                # Update step status to 'in_progress'
+                self.state_manager.update_plan_step_status(current_step["step_id"], "in_progress")
+
+                print(f"\n[Executing Step {current_step['step_id']}/{len(current_plan)}]:\n{task_description}")
+
+                # Get the detailed context for the worker
+                worker_context = self.state_manager.get_worker_context(current_step)
+                result = self.worker.execute_task(task_description, worker_context)
+
+                if result['status'] == 'success':
+                    # On success, log the code, update status, and move to the next step
+                    self.state_manager.add_executed_code_block(
+                        code=result['code'],
+                        step_id=current_step["step_id"],
+                        result=result.get('result', '')
+                    )
+                    self.state_manager.update_plan_step_status(current_step["step_id"], "completed")
+                    if result.get('result'): # If there is any stdout, store it
+                        last_code_execution_result = result['result']
+                    current_step_index += 1
+
+                elif result['status'] == 'failed':
+                    # On failure, trigger the re-planning process
+                    plan_succeeded = False
+                    error_message = result['error']
+                    failed_task = result['task']
+                    print(f"\n[Step {current_step['step_id']} Failed]:\n{error_message}")
+                    self.state_manager.update_plan_step_status(current_step["step_id"], "failed")
+                    
+                    # Get planner context and re-plan
+                    planner_context = self.state_manager.get_planner_context()
+                    replan_prompt = self.state_manager.get_planner_prompt(
+                        user_query=self.state_manager.interactions[-1]['query'],
+                        context=planner_context,
+                        failed_task_desc=failed_task,
+                        error_message=error_message
+                    )
+                    new_plan = self.planner.replan(replan_prompt)
+                    # If re-planning fails, exit
+                    if not new_plan or new_plan[0].get("status") == "failed":
+                        print("\n[Re-planning Failed]: Could not generate a new plan. Aborting.")
+                        break # Exit the inner while loop
+
+                    self.state_manager.set_plan(new_plan)
+                    current_step_index = 0  # Restart from the beginning of the new plan
+                    current_plan = self.state_manager.interactions[-1]['plan'] # Refresh current_plan
+            
+            # If the inner loop was broken due to re-planning failure, stop the outer loop too.
+            if not plan_succeeded and (not current_plan or current_plan[0].get("status") == "failed"):
+                break
+            
+            # 4. Validate and potentially summarize the result
+            validation_result = self._validate_and_summarize(last_code_execution_result)
+
+            if validation_result.get('status') == 'complete':
+                self.present_result(validation_result['summary'], last_code_execution_result)
+                return # Analysis is successful and complete
+            else:
+                # If incomplete, use the reason to re-plan
+                reason = validation_result.get('reason', 'The analysis was deemed incomplete for an unspecified reason.')
+                print(f"\n[Analysis Incomplete]: {reason}. Re-planning...")
+                
                 planner_context = self.state_manager.get_planner_context()
-                new_plan = self.planner.replan(
+                replan_prompt = self.state_manager.get_planner_prompt(
                     user_query=self.state_manager.interactions[-1]['query'],
                     context=planner_context,
-                    failed_task_desc=failed_task,
-                    error_message=error_message
+                    failed_task_desc="The overall analysis did not fully answer the user's question.",
+                    error_message=reason # Use the feedback as the "error" for re-planning
                 )
-                # If re-planning fails, exit
+                new_plan = self.planner.replan(replan_prompt)
+
                 if not new_plan or new_plan[0].get("status") == "failed":
-                    print("\n[Re-planning Failed]: Could not generate a new plan. Aborting.")
-                    plan_succeeded = False
-                    break
-
+                    print("\n[Re-planning Failed]: Could not generate a new plan based on feedback. Aborting.")
+                    self.present_result("The analysis could not be completed successfully.", last_code_execution_result)
+                    return
+                
                 self.state_manager.set_plan(new_plan)
-                current_step_index = 0  # Restart from the beginning of the new plan
-                current_plan = self.state_manager.interactions[-1]['plan'] # Refresh current_plan
-        
-        # 4. Generate final summary if the plan executed successfully
-        if current_plan[0]['status'] != 'failed' and plan_succeeded:
-            self.summarize_analysis(last_code_execution_result)
+                # The loop will now continue to the next cycle with the new plan
+    
+        self.present_result("Failed to produce a complete analysis after multiple attempts.", last_code_execution_result)
 
-    def summarize_analysis(self, last_code_execution_result: str):
-        final_answer = self._generate_final_summary(last_code_execution_result)
+
+    def present_result(self, final_answer: str, last_code_execution_result: str):
         print(f"\n[Data Copilot]:\n{final_answer}")
         print(f"\n[Execution Result]:\n{last_code_execution_result}")
         full_script = "\n".join(self.state_manager.executed_code_blocks)
