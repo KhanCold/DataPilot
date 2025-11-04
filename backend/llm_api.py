@@ -2,6 +2,7 @@ import os
 import json
 from openai import OpenAI
 from dotenv import load_dotenv
+import time
 
 # 加载 .env 文件中的环境变量
 # Load environment variables from .env file
@@ -32,31 +33,33 @@ def get_llm_response(prompt: str, model: str = "qwen3-max", response_format_type
     Returns:
         dict or str: 从模型返回的解析后的 JSON 对象或纯文本字符串。
     """
-
-    # Call the large model, expecting a JSON formatted string in return
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": response_format_type},
-            temperature=0.0,
-            timeout=timeout
-        )
-        
-        content = response.choices[0].message.content
-        
-        if response_format_type == "json_object":
-
-            # Extract and parse the JSON content
-            return json.loads(content)
-        else:
-            return content
+    retries = 3
+    for attempt in range(retries):
+        try:
+            # Call the large model, expecting a JSON formatted string in return
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": response_format_type},
+                temperature=0.0,
+                timeout=timeout
+            )
             
-    except Exception as e:
-
-        # If the LLM call or JSON parsing fails, print the error and return a dictionary indicating failure
-        print(f"Error getting LLM response or parsing JSON: {e}")
-        return {"error": str(e)}
+            content = response.choices[0].message.content
+            
+            if response_format_type == "json_object":
+                # Extract and parse the JSON content
+                return json.loads(content)
+            else:
+                return content
+                
+        except Exception as e:
+            print(f"Error getting LLM response (attempt {attempt + 1}/{retries}): {e}")
+            if attempt < retries - 1:
+                time.sleep(1)  # Wait for 1 second before retrying
+            else:
+                # If all retries fail, return a dictionary indicating failure
+                return {"error": str(e)}
 
 if __name__ == '__main__':
     # 测试代码
