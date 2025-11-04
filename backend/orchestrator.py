@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 from typing import List, Dict, Any
 import os
 
@@ -8,6 +6,7 @@ from code_executor import CodeExecutor
 from planner import Planner
 from worker import Worker
 from custom_types import PlanStep
+from llm_api import get_llm_response
 
 class Orchestrator:
     """
@@ -18,6 +17,44 @@ class Orchestrator:
         self.code_executor = CodeExecutor()
         self.planner = Planner()
         self.worker = Worker(self.code_executor, self.state_manager)
+
+    def _generate_final_summary(self, last_code_execution_result: str) -> str:
+        """
+        在所有步骤成功后,生成最终的自然语言总结。
+        """
+        
+        user_query = self.state_manager.user_query
+        full_script = "\n".join(self.state_manager.executed_code_blocks)
+
+        summary_prompt = f"""
+You are an expert data analyst. Your task is to provide a comprehensive, easy-to-understand summary in Chinese for a data analysis request.
+A user asked the following question:
+---
+{user_query}
+---
+
+To answer this question, the following Python script was executed:
+---
+<script>
+{full_script}
+</script>
+---
+
+The script produced the following final output:
+---
+<output>
+{last_code_execution_result}
+</output>
+---
+
+Based on all the information above, please provide a final, natural-language answer to the user's original question.
+- Explain what was done.
+- Present the key findings.
+- Directly answer the user's question.
+- Your entire response must be in Chinese.
+"""
+        summary = get_llm_response(summary_prompt, response_format_type='text')
+        return summary
 
     def load_csvs(self, user_file_paths: List[str]):
         """
@@ -91,6 +128,7 @@ class Orchestrator:
         # 3. Execute the plan step by step
         current_step_index = 0
         last_code_execution_result = ""
+        plan_succeeded = True
         while current_step_index < len(self.state_manager.plan):
             current_step = self.state_manager.plan[current_step_index]
             task_description = current_step.get("task", "No description")
@@ -98,7 +136,7 @@ class Orchestrator:
             # Update step status to 'in_progress'
             self.state_manager.update_plan_step_status(current_step["step_id"], "in_progress")
 
-            print(f"[Executing Step {current_step['step_id']}/{len(self.state_manager.plan)}]:\n{task_description}")
+            print(f"\n[Executing Step {current_step['step_id']}/{len(self.state_manager.plan)}]:\n{task_description}")
 
             # Get the detailed context for the worker
             worker_context = self.state_manager.get_worker_context(current_step)
@@ -116,30 +154,12 @@ class Orchestrator:
                 )
                 current_step_index += 1
 
-            elif result['status'] == 'final_answer':
-                # If the worker provides the final answer, print it and the full script, then exit.
-                final_answer = result['result']
-                print(f"[Data Copilot]:{final_answer}")
-                
-                # Also print the last code execution result
-                print("<Code Execution Result>:")
-                print(last_code_execution_result)
-                print("</Code Execution Result>")
-
-                # Also print the full, combined code script
-                print("<Full Executed Code Script>:")
-                full_script = "\n".join(self.state_manager.executed_code_blocks)
-                print(full_script)
-                print("</Full Executed Code Script>")
-
-                self.state_manager.update_conversation_history("assistant", final_answer)
-                break  # Exit the loop on success
-
             elif result['status'] == 'failed':
                 # On failure, trigger the re-planning process
+                plan_succeeded = False
                 error_message = result['error']
                 failed_task = result['task']
-                print(f"[Step {current_step['step_id']} Failed]: {error_message}")
+                print(f"\n[Step {current_step['step_id']} Failed]:\n{error_message}")
                 self.state_manager.update_plan_step_status(current_step["step_id"], "failed")
                 self.state_manager.update_conversation_history(
                     "assistant",
@@ -154,10 +174,34 @@ class Orchestrator:
                     failed_task_desc=failed_task,
                     error_message=error_message
                 )
+                # If re-planning fails, exit
+                if not new_plan or new_plan[0].get("status") == "failed":
+                    print("\n[Re-planning Failed]: Could not generate a new plan. Aborting.")
+                    plan_succeeded = False
+                    break
+
                 self.state_manager.set_plan(new_plan)
                 current_step_index = 0  # Restart from the beginning of the new plan
-                print("Re-planning complete. Starting new plan.")
+        
+        # 4. Generate final summary if the plan executed successfully
+        if plan_succeeded:
+            final_answer = self._generate_final_summary(last_code_execution_result)
+            
+            print("\n[Data Copilot]:")
+            
+            print(f"[分析总结]:\n{final_answer}")
+            
+            # Also print the last code execution result
+            print("\n[最后执行结果]:")
+            print(last_code_execution_result)
 
+            # Also print the full, combined code script
+            print("\n[完整执行代码]:")
+            full_script = "\n".join(self.state_manager.executed_code_blocks)
+            print(full_script)
+            print("\n" + "="*30)
+
+            self.state_manager.update_conversation_history("assistant", final_answer)
 
     def shutdown(self):
         """

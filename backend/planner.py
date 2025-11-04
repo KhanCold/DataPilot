@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 import json
 from typing import List, Dict, Any
 
@@ -22,7 +20,7 @@ You are an expert data analysis planner. Your task is to create a concise, step-
 **IMPORTANT RULES:**
 1.  **Be Concise**: Generate the minimum number of steps required. Combine related data cleaning and preparation tasks (e.g., filtering, cleaning, and type conversion) into a single, logical step.
 2.  **Analyze Context**: The user's data is already available in the workspace. The context below shows available files and existing DataFrame summaries. Do NOT add a step to load data if a DataFrame with the same data already exists. The first step should be using the existing dataframes.
-3.  **Final Answer**: The **last step** of the plan MUST be to summarize all findings and answer the user in natural language.
+3.  **Focus on Code**: The plan should only contain steps that can be executed as code. Do not include any plotting steps.
 
 **Workspace Context:**
 {context}
@@ -34,7 +32,7 @@ You are an expert data analysis planner. Your task is to create a concise, step-
 `[
     {{"step_id": 1, "task": "First logical step..."}},
     ...
-    {{"step_id": N, "task": "Summarize findings and report the conclusion."}}
+    {{"step_id": N, "task": "Last logical step..."}}
 ]`
 """
 
@@ -63,13 +61,13 @@ Based on the failure, create a **new and complete** plan to fulfill the user's r
 1.  **Output Format**: You MUST return a JSON list of objects.
 2.  **Correct the Error**: Your new plan must address the root cause of the error.
 3.  **Completeness**: The plan should cover all steps from the current state to the final answer.
-4.  **Final Answer**: The **last step** must be to summarize findings and report to the user.
+4.  **Focus on Code**: The plan should only contain steps that can be executed as code. Do not include any plotting steps.
 
 **New JSON Plan (must be a JSON list of objects in Chinese):**
 `[
     {{"step_id": 1, "task": "First step of the new plan..."}},
     ...
-    {{"step_id": N, "task": "Summarize findings and report the conclusion."}}
+    {{"step_id": N, "task": "Last step of the new plan..."}}
 ]`
 """
 

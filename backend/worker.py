@@ -1,5 +1,3 @@
-# -*- coding: utf-8 -*-
-
 import json
 import os
 from typing import Dict, Any
@@ -25,12 +23,9 @@ class Worker:
         self.code_executor = code_executor
         self.state_manager = state_manager
         
-        # 工具注册表,将工具名称映射到相应的处理方法
         # Tool registry, mapping tool names to their corresponding handler methods
         self.tool_registry = {
             "execute_python": self._tool_execute_python,
-            "list_files_in_workspace": self._tool_list_files,
-            "report_final_answer": self._tool_report_final_answer,
         }
 
     def _get_worker_prompt(self, task_description: str, context: str) -> str:
@@ -55,18 +50,12 @@ You must call a tool to complete the task. Your response must be a single JSON o
     - Use `print()` to output text results.
     - The sandbox remembers variables from previous executions (e.g., `df`).
 
-2. `list_files_in_workspace()`
-    - Description: Lists all available files in the workspace (e.g., `data1.csv`).
-
-3. `report_final_answer(natural_language_summary: str)`
-    - Description: **(Use only for the final step)** When you have all the analysis results, use this tool to submit the final natural language answer to the user.
-
 **## Workspace Context**
 {context}
 
 **## Instructions for Your Response**
 1.  **Focus**: Write code ONLY for the current task: `{task_description}`.
-2.  **Idempotency**: Ensure your code is idempotent. It should be safely runnable multiple times without causing errors (e.g., check if a column exists before dropping it).
+2.  **Idempotency**: Ensure your code is idempotent. It should be safely runnable multiple times without causing errors.
 3.  **No Repetition**: DO NOT repeat code that has already been executed. You can use all variables and DataFrames created in previous steps.
 
 **## Your Response (JSON):**
@@ -74,7 +63,7 @@ You must call a tool to complete the task. Your response must be a single JSON o
 {{
   "thought": "I will analyze the task and decide which tool to use...",
   "tool_call": {{
-    "tool_name": "...",
+    "tool_name": "execute_python",
     "arguments": {{
       "arg1_name": "value1"
     }}
@@ -88,40 +77,24 @@ You must call a tool to complete the task. Your response must be a single JSON o
         执行 Python 代码的工具,并自动同步执行后的状态。
         这是一个关键的封装,确保了状态的一致性。
         """
-        print(f"[Executing Code]:\n{code}")
-        # 改变工作目录到沙箱的工作区,以确保文件读写在正确的路径
+        print(f"\n[Executing Code]:\n{code}")
         # Change working directory to the sandbox's workspace to ensure file I/O is at the correct path
         workspace_path = os.path.abspath(self.state_manager.workspace_dir).replace('\\', '/')
         code_to_run = f"import os\nos.chdir('{workspace_path}')\n{code}"
         
         stdout, stderr = self.code_executor.run_code(code_to_run)
         
-        # 自动同步状态
         # Automatically sync state
         df_summaries = self.code_executor.get_dataframe_summaries_from_kernel()
         self.state_manager.update_all_dataframe_summaries(df_summaries)
 
         if stderr:
-            print(f"[Execution Error]:\n{stderr}")
+            print(f"\n[Execution Error]:\n{stderr}")
             return {"status": "error", "error": stderr, "code": code}
         else:
-            print(f"[Execution Output]:\n{stdout}")
+            print(f"\n[Execution Output]:\n{stdout}")
             return {"status": "success", "result": stdout, "code": code}
-
-    def _tool_list_files(self) -> Dict[str, Any]:
-        """
-        列出工作区文件的工具。
-        """
-        files = self.state_manager.get_workspace_files()
-        result_str = "Files in workspace: " + ", ".join(files)
-        return {"status": "success", "result": result_str}
         
-    def _tool_report_final_answer(self, natural_language_summary: str) -> Dict[str, Any]:
-        """
-        报告最终答案的工具。
-        """
-        return {"status": "final_answer", "result": natural_language_summary}
-
     def execute_task(self, task_description: str, context: str, max_retries: int = 3) -> Dict[str, Any]:
         """
         执行单个任务,包含一个 ReAct 风格的重试循环以进行"微观纠错"。
@@ -140,9 +113,9 @@ You must call a tool to complete the task. Your response must be a single JSON o
         while retry_count < max_retries:
             prompt = self._get_worker_prompt(task_description, current_context)
 
-            # print(f"\n===== Prompt:  =====")
-            # print(prompt)
-            # print("======= Prompt End =======")
+            print(f"\n===== Prompt:  =====")
+            print(prompt)
+            print("======= Prompt End =======")
             llm_response = get_llm_response(prompt)
             
             if "error" in llm_response or "tool_call" not in llm_response:
@@ -167,13 +140,11 @@ You must call a tool to complete the task. Your response must be a single JSON o
                 continue
                 
             try:
-                # 调用工具
                 # Call the tool
                 tool_function = self.tool_registry[tool_name]
                 result = tool_function(**arguments)
                 
                 if result.get("status") == "error":
-                    # 代码执行出错,进入重试循环
                     # Code execution error, enter retry loop
                     retry_count += 1
                     error_feedback = result.get("error", "An unknown error occurred.")
@@ -192,12 +163,10 @@ You must call a tool to complete the task. Your response must be a single JSON o
                     print(f"Task execution failed. Retrying ({retry_count}/{max_retries})...")
                     continue
                 else:
-                    # 工具执行成功或返回最终答案
                     # Tool executed successfully or returned the final answer
                     return result
 
             except TypeError as e:
-                # 参数不匹配等错误
                 # Errors like argument mismatch
                 error_message = f"Tool call argument error: {e}"
                 print(error_message)
@@ -205,6 +174,5 @@ You must call a tool to complete the task. Your response must be a single JSON o
                 current_context += f"\n\n**Attempt {retry_count} Error:**\n{error_message}"
                 continue
         
-        # 如果所有重试都失败了,则向 Orchestrator 报告失败
         # If all retries fail, report failure to the Orchestrator
         return {"status": "failed", "error": "Worker failed to execute the task after multiple retries.", "task": task_description}
