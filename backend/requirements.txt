@@ -1,0 +1,5 @@
+openai
+python-dotenv
+pandas
+jupyter_client
+ipykernel
