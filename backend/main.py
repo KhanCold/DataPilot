@@ -21,19 +21,19 @@ def main():
         # Display initial dataframe summaries
         # print(orchestrator.state_manager.get_dataframe_summaries_for_display())
 
-        # while True:
-        #     user_input = input("[user]: ")
+        while True:
+            user_input = input("[user]: ")
             
-        #     if user_input.lower() == ':q':
-        #         break
+            if user_input.lower() == ':q':
+                break
                 
-        #     if not user_input:
-        #         print("please input a valid question.")
-        #         continue
+            if not user_input:
+                print("please input a valid question.")
+                continue
             
-        #     # 调用 Orchestrator 执行分析
-        #     orchestrator.run_analysis(user_input)
-        orchestrator.run_analysis("分析 Clothing 随时间变化的总销售额趋势.")
+            # 调用 Orchestrator 执行分析
+            orchestrator.run_analysis(user_input)
+        # orchestrator.run_analysis("分析 Clothing 随时间变化的总销售额趋势.")
             
     except KeyboardInterrupt:
         print("\nUser interrupted")

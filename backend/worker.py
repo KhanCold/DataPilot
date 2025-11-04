@@ -5,6 +5,7 @@ from typing import Dict, Any
 from code_executor import CodeExecutor
 from state_manager import StateManager
 from llm_api import get_llm_response
+from custom_types import WorkerResult
 
 class Worker:
     """
@@ -32,7 +33,6 @@ class Worker:
         """
         构建用于工具调用的 Worker Prompt。
         """
-        # Prompt is in English, as requested.
         return f"""
 You are an expert Python data analysis executor. Your task is to execute a single step in a larger plan.
 
@@ -47,6 +47,7 @@ You must call a tool to complete the task. Your response must be a single JSON o
 
 1. `execute_python(code: str)`
     - Description: Executes Python code in a stateful sandbox. The sandbox has `pandas` installed.
+    - Use `print()` to output text results.
     - The sandbox remembers variables from previous executions (e.g., `df`).
 
 **## Workspace Context**
@@ -55,7 +56,8 @@ You must call a tool to complete the task. Your response must be a single JSON o
 **## Instructions for Your Response**
 1.  **Focus**: Write code ONLY for the current task: `{task_description}`.
 2.  **Idempotency**: Ensure your code is idempotent. It should be safely runnable multiple times without causing errors.
-3.  **No Repetition**: DO NOT repeat code that has already been executed. You can use all variables and DataFrames created in previous steps.
+3.  **No Repetition**: DO NOT repeat code that has already been executed, including library imports like `import pandas as pd`. You can use all variables and DataFrames created in previous steps.
+4.  **MANDATORY**: The code you generate MUST end with a `print()` statement to output the final result. Do not omit this step.
 
 **## Your Response (JSON):**
 ```json
@@ -94,7 +96,7 @@ You must call a tool to complete the task. Your response must be a single JSON o
             print(f"\n[Execution Output]:\n{stdout}")
             return {"status": "success", "result": stdout, "code": code}
         
-    def execute_task(self, task_description: str, context: str, max_retries: int = 3) -> Dict[str, Any]:
+    def execute_task(self, task_description: str, context: str, max_retries: int = 3) -> WorkerResult:
         """
         执行单个任务,包含一个 ReAct 风格的重试循环以进行"微观纠错"。
 
@@ -104,7 +106,7 @@ You must call a tool to complete the task. Your response must be a single JSON o
             max_retries (int): 在将问题升级到 Planner 之前,Worker 的最大重试次数。
 
         Returns:
-            Dict[str, Any]: 一个包含任务执行结果的字典,包括状态('success', 'failed', 'final_answer')。
+            WorkerResult: 一个包含任务执行结果的字典,包括状态('success' 或 'failed')。
         """
         retry_count = 0
         current_context = context
@@ -112,9 +114,9 @@ You must call a tool to complete the task. Your response must be a single JSON o
         while retry_count < max_retries:
             prompt = self._get_worker_prompt(task_description, current_context)
 
-            print(f"\n===== Prompt:  =====")
-            print(prompt)
-            print("======= Prompt End =======")
+            # print(f"\n===== Prompt:  =====")
+            # print(prompt)
+            # print("======= Prompt End =======")
             llm_response = get_llm_response(prompt)
             
             if "error" in llm_response or "tool_call" not in llm_response:

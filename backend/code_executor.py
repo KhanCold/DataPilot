@@ -110,7 +110,6 @@ class CodeExecutor:
         # Introspection script: find all DataFrames and generate summaries
         introspection_script = """
 import json
-import pandas as pd
 
 # __STATE_UPDATE__ 是一个魔法字符串,帮助我们从 stdout 中定位 JSON 输出
 # __STATE_UPDATE__ is a magic string to help us locate the JSON output from stdout

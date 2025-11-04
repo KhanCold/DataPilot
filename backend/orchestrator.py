@@ -66,17 +66,18 @@ Based on all the information above, please provide a final, natural-language ans
         
         # 2. Load data into DataFrames and update summaries
         auto_generated_code_blocks = []
-        for file_path in user_file_paths:
+
+        # Pre-import pandas for the kernel, as it's used in almost all data analysis.
+        pre_import = "import pandas as pd"
+        auto_generated_code_blocks.append({"code": pre_import})
+
+        for i, file_path in enumerate(user_file_paths):
             file_name = os.path.basename(file_path)
+            print(f"Loading{file_name}...")
             if file_name.endswith('.csv'):
-                # Create a valid DataFrame variable name from the file name.
-                df_name = os.path.splitext(file_name)[0]
-                df_name = ''.join(c if c.isalnum() or c == '_' else '_' for c in df_name)
-                if df_name and not df_name[0].isalpha() and df_name[0] != '_':
-                    df_name = '_' + df_name
-                
-                code = f"import pandas as pd\n{df_name} = pd.read_csv('{file_name}')"
-                auto_generated_code_blocks.append({"code": code, "file_name": file_name})
+                df_name = f"df_{i+1}"
+                code = f"{df_name} = pd.read_csv('{file_name}')"
+                auto_generated_code_blocks.append({"code": code})
                 
         # To ensure file I/O is in the correct path, change the working directory to the sandbox's workspace.
         workspace_path = os.path.abspath(self.state_manager.workspace_dir).replace('\\', '/')
@@ -90,7 +91,6 @@ Based on all the information above, please provide a final, natural-language ans
         if stderr:
             print(f"Auto-loading of CSVs failed: {stderr}")
         else:
-            print("Successfully loaded all CSV files.")
             # Add the auto-generated code to the executed code history
             # This provides context to the LLM that the data is already loaded.
             for block in auto_generated_code_blocks:
@@ -123,7 +123,7 @@ Based on all the information above, please provide a final, natural-language ans
         plan_succeeded = True
 
         current_plan = self.state_manager.interactions[-1]['plan']
-        while current_step_index < len(current_plan):
+        while current_plan[0]['status'] != 'failed' and current_step_index < len(current_plan):
             current_step = current_plan[current_step_index]
             task_description = current_step.get("task", "No description")
             
@@ -175,20 +175,15 @@ Based on all the information above, please provide a final, natural-language ans
                 current_plan = self.state_manager.interactions[-1]['plan'] # Refresh current_plan
         
         # 4. Generate final summary if the plan executed successfully
-        if plan_succeeded:
-            final_answer = self._generate_final_summary(last_code_execution_result)
-            
-            print("\n[Data Copilot]:\n{final_answer}")
-            
-            # Also print the last code execution result
-            print("\n[最后执行结果]:")
-            print(last_code_execution_result)
+        if current_plan[0]['status'] != 'failed' and plan_succeeded:
+            self.summarize_analysis(last_code_execution_result)
 
-            # Also print the full, combined code script
-            print("\n[完整执行代码]:")
-            full_script = "\n".join(self.state_manager.executed_code_blocks)
-            print(full_script)
-            print("\n" + "="*30)
+    def summarize_analysis(self, last_code_execution_result: str):
+        final_answer = self._generate_final_summary(last_code_execution_result)
+        print(f"\n[Data Copilot]:\n{final_answer}")
+        print(f"\n[Execution Result]:\n{last_code_execution_result}")
+        full_script = "\n".join(self.state_manager.executed_code_blocks)
+        print(f"\n[Full Script]:\n{full_script}")
 
     def shutdown(self):
         """

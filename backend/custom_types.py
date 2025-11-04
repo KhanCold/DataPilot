@@ -6,6 +6,7 @@ to ensure type consistency and improve readability.
 """
 
 from typing import Dict, Tuple, List, TypedDict, Union, Optional
+from typing_extensions import Literal
 
 class SuccessSummary(TypedDict):
     """
@@ -54,3 +55,14 @@ class Interaction(TypedDict):
     """
     query: str
     plan: Plan
+
+
+class WorkerResult(TypedDict):
+    """
+    Represents a successful execution result from the Worker.
+    """
+    status: Literal["success"]
+    code: str
+    result: str
+    error: Optional[str]
+    task: Optional[str]
