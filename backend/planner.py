@@ -18,7 +18,7 @@ class Planner:
 You are an expert data analysis planner. Your task is to create a concise, step-by-step plan to answer the user's request.
 
 **IMPORTANT RULES:**
-1.  **Be Concise**: Generate the minimum number of steps required. Combine related data cleaning and preparation tasks (e.g., filtering, cleaning, and type conversion) into a single, logical step.
+1.  **Be Concise**: Generate the minimum number of steps required. If the entire request can be accomplished in a single step, create only one step. Combine related tasks into a single, logical step.
 2.  **Analyze Context**: The user's data is already available in the workspace. The context below shows available files and existing DataFrame summaries. Do NOT add a step to load data if a DataFrame with the same data already exists. The first step should be using the existing dataframes.
 3.  **Focus on Code**: The plan should only contain steps that can be executed as code. Do not include any plotting steps.
 
@@ -58,10 +58,11 @@ You are an expert data analysis re-planner. A previous plan failed to execute. Y
 Based on the failure, create a **new and complete** plan to fulfill the user's request. The plan must be concise and correct the error.
 
 **IMPORTANT RULES:**
-1.  **Output Format**: You MUST return a JSON list of objects.
-2.  **Correct the Error**: Your new plan must address the root cause of the error.
-3.  **Completeness**: The plan should cover all steps from the current state to the final answer.
-4.  **Focus on Code**: The plan should only contain steps that can be executed as code. Do not include any plotting steps.
+1.  **Be Concise**: Generate the minimum number of steps required.
+2.  **Output Format**: You MUST return a JSON list of objects.
+3.  **Correct the Error**: Your new plan must address the root cause of the error.
+4.  **Completeness**: The plan should cover all steps from the current state to the final answer.
+5.  **Focus on Code**: The plan should only contain steps that can be executed as code. Do not include any plotting steps.
 
 **New JSON Plan (must be a JSON list of objects in Chinese):**
 `[
