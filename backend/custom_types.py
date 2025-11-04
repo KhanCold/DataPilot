@@ -5,7 +5,7 @@ This file contains custom type definitions used across the application
 to ensure type consistency and improve readability.
 """
 
-from typing import Dict, Tuple, List, TypedDict, Union
+from typing import Dict, Tuple, List, TypedDict, Union, Optional
 
 class SuccessSummary(TypedDict):
     """
@@ -34,10 +34,23 @@ class PlanStep(TypedDict):
     """
     Represents a single step in an execution plan,
     containing a step ID and a task description.
+    It's progressively populated as it's executed.
     """
     step_id: int
     task: str
-    status: str # "pending", "in_progress", "completed", "failed"
+    status: str  # "pending", "in_progress", "completed", "failed"
+    code: Optional[str]
+    result: Optional[str]
+
 
 # A complete execution plan is a list of PlanSteps
 Plan = List[PlanStep]
+
+
+class Interaction(TypedDict):
+    """
+    Represents a single, complete interaction cycle, from user query
+    to a planned and executed series of steps.
+    """
+    query: str
+    plan: Plan

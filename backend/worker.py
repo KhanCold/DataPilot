@@ -46,8 +46,7 @@ You must call a tool to complete the task. Your response must be a single JSON o
 **## Available Tools**
 
 1. `execute_python(code: str)`
-    - Description: Executes Python code in a stateful sandbox. The sandbox has `pandas` and `matplotlib` installed.
-    - Use `print()` to output text results.
+    - Description: Executes Python code in a stateful sandbox. The sandbox has `pandas` installed.
     - The sandbox remembers variables from previous executions (e.g., `df`).
 
 **## Workspace Context**

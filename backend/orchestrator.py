@@ -20,17 +20,17 @@ class Orchestrator:
 
     def _generate_final_summary(self, last_code_execution_result: str) -> str:
         """
-        在所有步骤成功后,生成最终的自然语言总结。
+        Generates the final natural language summary after all steps succeed.
         """
         
-        user_query = self.state_manager.user_query
+        current_query = self.state_manager.interactions[-1]['query']
         full_script = "\n".join(self.state_manager.executed_code_blocks)
 
         summary_prompt = f"""
 You are an expert data analyst. Your task is to provide a comprehensive, easy-to-understand summary in Chinese for a data analysis request.
 A user asked the following question:
 ---
-{user_query}
+{current_query}
 ---
 
 To answer this question, the following Python script was executed:
@@ -65,6 +65,7 @@ Based on all the information above, please provide a final, natural-language ans
         self.state_manager.load_csvs(user_file_paths)
         
         # 2. Load data into DataFrames and update summaries
+        auto_generated_code_blocks = []
         for file_path in user_file_paths:
             file_name = os.path.basename(file_path)
             if file_name.endswith('.csv'):
@@ -75,68 +76,61 @@ Based on all the information above, please provide a final, natural-language ans
                     df_name = '_' + df_name
                 
                 code = f"import pandas as pd\n{df_name} = pd.read_csv('{file_name}')"
+                auto_generated_code_blocks.append({"code": code, "file_name": file_name})
                 
-                # To ensure file I/O is in the correct path, change the working directory to the sandbox's workspace.
-                workspace_path = os.path.abspath(self.state_manager.workspace_dir).replace('\\', '/')
-                code_to_run = f"import os\nos.chdir('{workspace_path}')\n{code}"
-                
-                stdout, stderr = self.code_executor.run_code(code_to_run)
-                
-                if stderr:
-                    error_msg = stderr
-                    print(f"Auto-loading failed for {file_name}: {error_msg}")
-                    # Also update conversation history so LLM knows.
-                    self.state_manager.update_conversation_history(
-                        "assistant",
-                        f"I tried to automatically load `{file_name}` into a DataFrame named `{df_name}`, but it failed with the following error:\n```\n{error_msg}\n```"
-                    )
-                else:
-                    print(f"Successfully loaded {file_name}.")
+        # To ensure file I/O is in the correct path, change the working directory to the sandbox's workspace.
+        workspace_path = os.path.abspath(self.state_manager.workspace_dir).replace('\\', '/')
         
+        # Combine all loading code into a single block for execution
+        full_code_to_run = f"import os\nos.chdir('{workspace_path}')\n"
+        full_code_to_run += "\n".join([block['code'] for block in auto_generated_code_blocks])
+
+        stdout, stderr = self.code_executor.run_code(full_code_to_run)
+        
+        if stderr:
+            print(f"Auto-loading of CSVs failed: {stderr}")
+        else:
+            print("Successfully loaded all CSV files.")
+            # Add the auto-generated code to the executed code history
+            # This provides context to the LLM that the data is already loaded.
+            for block in auto_generated_code_blocks:
+                self.state_manager.add_executed_code_block(
+                    code=block['code'], 
+                    step_id=None, 
+                    result=stdout if not stderr else stderr
+                )
+
         # After attempting to load all files, update the summaries.
         df_summaries = self.code_executor.get_dataframe_summaries_from_kernel()
         self.state_manager.update_all_dataframe_summaries(df_summaries)
 
-        # Add the auto-generated code to the executed code history
-        # This provides context to the LLM that the data is already loaded.
-        for file_path in user_file_paths:
-            file_name = os.path.basename(file_path)
-            if file_name.endswith('.csv'):
-                df_name = os.path.splitext(file_name)[0]
-                df_name = ''.join(c if c.isalnum() or c == '_' else '_' for c in df_name)
-                if df_name and not df_name[0].isalpha() and df_name[0] != '_':
-                    df_name = '_' + df_name
-                
-                # Form the code and add it to the state manager's history
-                code = f"import pandas as pd\n{df_name} = pd.read_csv('{file_name}')"
-                self.state_manager.add_executed_code_block(code)
-
     def run_analysis(self, user_query: str):
         """
-        运行一次完整的数据分析流程。
-        user_query (str): 用户的自然语言数据分析请求。
+        Runs a full data analysis flow for a given user query.
+        user_query (str): The user's natural language data analysis request.
         """
         # 1. Initialize state for the new query
-        self.state_manager.set_user_query(user_query)
+        self.state_manager.start_new_interaction(user_query)
         
         # 2. Generate the initial plan
         planner_context = self.state_manager.get_planner_context()
         plan = self.planner.generate_plan(user_query, planner_context)
-        self.state_manager.update_conversation_history("user", user_query)
         self.state_manager.set_plan(plan)
 
         # 3. Execute the plan step by step
         current_step_index = 0
         last_code_execution_result = ""
         plan_succeeded = True
-        while current_step_index < len(self.state_manager.plan):
-            current_step = self.state_manager.plan[current_step_index]
+
+        current_plan = self.state_manager.interactions[-1]['plan']
+        while current_step_index < len(current_plan):
+            current_step = current_plan[current_step_index]
             task_description = current_step.get("task", "No description")
             
             # Update step status to 'in_progress'
             self.state_manager.update_plan_step_status(current_step["step_id"], "in_progress")
 
-            print(f"\n[Executing Step {current_step['step_id']}/{len(self.state_manager.plan)}]:\n{task_description}")
+            print(f"\n[Executing Step {current_step['step_id']}/{len(current_plan)}]:\n{task_description}")
 
             # Get the detailed context for the worker
             worker_context = self.state_manager.get_worker_context(current_step)
@@ -144,14 +138,14 @@ Based on all the information above, please provide a final, natural-language ans
 
             if result['status'] == 'success':
                 # On success, log the code, update status, and move to the next step
-                self.state_manager.add_executed_code_block(result['code'])
+                self.state_manager.add_executed_code_block(
+                    code=result['code'],
+                    step_id=current_step["step_id"],
+                    result=result.get('result', '')
+                )
                 self.state_manager.update_plan_step_status(current_step["step_id"], "completed")
                 if result.get('result'): # If there is any stdout, store it
                     last_code_execution_result = result['result']
-                self.state_manager.update_conversation_history(
-                    "assistant", 
-                    f"Step {current_step['step_id']} completed. Result:\n{result['result']}"
-                )
                 current_step_index += 1
 
             elif result['status'] == 'failed':
@@ -161,15 +155,11 @@ Based on all the information above, please provide a final, natural-language ans
                 failed_task = result['task']
                 print(f"\n[Step {current_step['step_id']} Failed]:\n{error_message}")
                 self.state_manager.update_plan_step_status(current_step["step_id"], "failed")
-                self.state_manager.update_conversation_history(
-                    "assistant",
-                    f"Step {current_step['step_id']} failed with error: {error_message}. I will now try to re-plan."
-                )
-
+                
                 # Get planner context and re-plan
                 planner_context = self.state_manager.get_planner_context()
                 new_plan = self.planner.replan(
-                    user_query=self.state_manager.user_query,
+                    user_query=self.state_manager.interactions[-1]['query'],
                     context=planner_context,
                     failed_task_desc=failed_task,
                     error_message=error_message
@@ -182,14 +172,13 @@ Based on all the information above, please provide a final, natural-language ans
 
                 self.state_manager.set_plan(new_plan)
                 current_step_index = 0  # Restart from the beginning of the new plan
+                current_plan = self.state_manager.interactions[-1]['plan'] # Refresh current_plan
         
         # 4. Generate final summary if the plan executed successfully
         if plan_succeeded:
             final_answer = self._generate_final_summary(last_code_execution_result)
             
-            print("\n[Data Copilot]:")
-            
-            print(f"[分析总结]:\n{final_answer}")
+            print("\n[Data Copilot]:\n{final_answer}")
             
             # Also print the last code execution result
             print("\n[最后执行结果]:")
@@ -201,10 +190,8 @@ Based on all the information above, please provide a final, natural-language ans
             print(full_script)
             print("\n" + "="*30)
 
-            self.state_manager.update_conversation_history("assistant", final_answer)
-
     def shutdown(self):
         """
-        安全地关闭 CodeExecutor 的内核。
+        Safely shuts down the CodeExecutor's kernel.
         """
         self.code_executor.shutdown()
