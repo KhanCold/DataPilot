@@ -149,6 +149,20 @@ class StateManager:
             raise ValueError("Cannot set validation result without an active interaction.")
         self.interactions[-1]["validation_result"] = result
 
+    def get_plan_summary(self, plan: Plan) -> str:
+        """
+        Generates a formatted string summary of a given plan.
+        """
+        if not plan:
+            return ""
+
+        plan_summary_parts = []
+        for s in plan:
+            plan_summary_parts.append(f"  - Step {s['step_id']} ({s.get('status', 'N/A')}): {s['task']}")
+            if s.get('result'):
+                plan_summary_parts.append(f"    - Result:\n```\n{s['result']}\n```\n")
+        return "\n".join(plan_summary_parts)
+
     def _get_formatted_history(self) -> str:
         """
         Formats the interaction history into a string for prompt context.
@@ -426,12 +440,7 @@ You must call a tool to complete the task. Your response must be a single JSON o
 
         history = self._get_formatted_history()
 
-        plan_summary_parts = []
-        for s in current_plan:
-            plan_summary_parts.append(f"  - Step {s['step_id']} ({s.get('status', 'N/A')}): {s['task']}")
-            if s.get('result'):
-                plan_summary_parts.append(f"    - Result:\n```\n{s['result']}\n```\n")
-        plan_summary = "\n".join(plan_summary_parts)
+        plan_summary = self.get_plan_summary(current_plan)
 
 
         prompt = f"""

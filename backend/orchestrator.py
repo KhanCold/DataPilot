@@ -204,8 +204,15 @@ class Orchestrator:
 
 
     def present_result(self, final_answer: str, last_code_execution_result: str):
-        print(f"\n[Data Copilot]:\n{final_answer}")
-        print(f"\n[Execution Result]:\n{last_code_execution_result}")
+        print(f"\n[DataPilot]:\n{final_answer}")
+        
+        current_plan = []
+        if self.state_manager.interactions:
+            current_plan = self.state_manager.interactions[-1].get("plan", [])
+        
+        plan_summary = self.state_manager.get_plan_summary(current_plan)
+        print(f"\n[Execution Result]:\n{plan_summary}")
+        
         full_script = "\n".join(self.state_manager.executed_code_blocks)
         print(f"\n[Full Script]:\n{full_script}")
 
