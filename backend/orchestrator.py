@@ -35,7 +35,7 @@ class Orchestrator:
             last_code_execution_result=last_code_execution_result
         )
         
-        response = get_llm_response(validation_prompt, response_format_type='json_object')
+        response = get_llm_response(validation_prompt, response_format_type='json_object', timeout=30)
         
         # Ensure the response has a status, default to incomplete if missing
         if 'status' not in response:

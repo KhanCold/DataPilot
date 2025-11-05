@@ -22,7 +22,7 @@ client = OpenAI(
     base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
 )
 
-def get_llm_response(prompt: str, model: str = "qwen3-max", response_format_type: str = "json_object", timeout: int = 10) -> dict:
+def get_llm_response(prompt: str, model: str = "qwen3-max", response_format_type: str = "json_object", timeout: int = 20) -> dict:
     """
 
         prompt (str): 发送给大模型的提示。
