@@ -1,5 +1,6 @@
 from typing import List, Dict, Any
 import os
+import re
 
 from state_manager import StateManager
 from code_executor import CodeExecutor
@@ -214,7 +215,38 @@ class Orchestrator:
         print(f"\n[Execution Result]:\n{plan_summary}")
         
         full_script = "\n".join(self.state_manager.executed_code_blocks)
-        print(f"\n[Full Script]:\n{full_script}")
+        print(f"\n[Full Script]:\n```\n{full_script}\n```")
+        self._save_result_to_md(final_answer, plan_summary, full_script)
+
+    def _save_result_to_md(self, final_answer: str, result: str, script: str):
+        """
+        Saves the analysis results to a markdown file in the 'result' directory.
+        """
+        result_dir = 'result'
+        os.makedirs(result_dir, exist_ok=True)
+        
+        task_files = [f for f in os.listdir(result_dir) if f.startswith('task-') and f.endswith('.md')]
+        next_task_num = 1
+        if task_files:
+            task_nums = []
+            for f in task_files:
+                match = re.search(r'task-(\d+).md', f)
+                if match:
+                    task_nums.append(int(match.group(1)))
+            if task_nums:
+                next_task_num = max(task_nums) + 1
+        
+        file_name = f'task-{next_task_num}.md'
+        file_path = os.path.join(result_dir, file_name)
+        
+        md_content = f"# DataPilot Analysis Report - Task {next_task_num}\n\n"
+        md_content += f"## Final Answer\n\n{final_answer}\n\n"
+        md_content += f"## Execution Result\n\n{result}\n\n"
+        md_content += f"## Full Script\n\n```python\n{script}\n```\n"
+        
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(md_content)
+        print(f"\n[DataPilot] Result saved to {file_path}")
 
     def shutdown(self):
         """
