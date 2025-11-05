@@ -18,17 +18,14 @@ class CodeExecutor:
         启动一个 KernelManager 和一个 KernelClient,并建立与内核的通信通道。
         """
         # 启动一个内核管理器,它会自动寻找可用的 ipykernel
-        # Start a kernel manager, which will automatically find an available ipykernel
         self.km = KernelManager()
         self.km.start_kernel()
         
         # 获取内核客户端,用于与内核通信
-        # Get the kernel client for communicating with the kernel
         self.kc = self.km.client()
         self.kc.start_channels()
         
         # 等待内核确认已准备就绪
-        # Wait for the kernel to confirm it's ready
         try:
             self.kc.wait_for_ready(timeout=60)
             print("Kernel is ready.")
@@ -48,36 +45,30 @@ class CodeExecutor:
             tuple[str, str]: 一个包含 stdout 和 stderr 的元组。
         """
         # 向内核发送执行请求
-        # Send an execution request to the kernel
         msg_id = self.kc.execute(code_string)
         
         stdout_str = ""
         stderr_str = ""
         
         # 循环监听 iopub 通道以获取执行结果
-        # Loop listening on the iopub channel for execution results
         while True:
             try:
                 # 从 iopub 通道获取消息
-                # Get a message from the iopub channel
                 msg = self.kc.get_iopub_msg(timeout=60)
                 
                 # 检查消息是否与我们的请求相关
-                # Check if the message is related to our request
                 if msg['parent_header'].get('msg_id') == msg_id:
                     msg_type = msg['header']['msg_type']
                     content = msg['content']
                     
                     if msg_type == 'stream':
                         # 收集 stdout 和 stderr
-                        # Collect stdout and stderr
                         if content['name'] == 'stdout':
                             stdout_str += content['text']
                         else:
                             stderr_str += content['text']
                     elif msg_type == 'display_data':
                         # 收集 display_data,例如 matplotlib 的图表
-                        # Collect display_data, e.g., charts from matplotlib
                         if 'text/plain' in content['data']:
                             stdout_str += content['data']['text/plain']
                     elif msg_type == 'execute_result':
@@ -85,16 +76,13 @@ class CodeExecutor:
                             stdout_str += content['data']['text/plain']
                     elif msg_type == 'error':
                         # 收集错误信息
-                        # Collect error information
                         stderr_str += f"{content['ename']}: {content['evalue']}\n"
                         stderr_str += "\n".join(content['traceback'])
                     elif msg_type == 'status' and content['execution_state'] == 'idle':
                         # 当内核变为空闲状态时,表示执行完成
-                        # When the kernel becomes idle, it means execution is complete
                         break
             except Exception:
                 # 如果超时未收到消息,则认为执行结束
-                # If no message is received within the timeout, assume execution has ended
                 break
         
         return stdout_str, stderr_str
@@ -146,7 +134,6 @@ get_all_df_summaries()
         """
         
         # 运行内省脚本并捕获输出
-        # Run the introspection script and capture the output
         stdout, stderr = self.run_code(introspection_script)
         
         if stderr:
@@ -154,7 +141,6 @@ get_all_df_summaries()
             return {}
 
         # 从 stdout 中解析出 JSON 摘要
-        # Parse the JSON summary from stdout
         for line in stdout.splitlines():
             if line.startswith("__STATE_UPDATE__:"):
                 json_str = line.replace("__STATE_UPDATE__:", "")
