@@ -1,10 +1,10 @@
 
-logs/
-result/
-workspace cache/
+backend/logs/
+backend/result/
+backend/workspace cache/
 .env*
 
-__pycache__/
+backend/__pycache__/
 *.pyc
 *.pyo
 *.pyd
