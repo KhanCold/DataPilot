@@ -410,16 +410,15 @@ You must call a tool to complete the task. Your response must be a single JSON o
         log_prompt_to_file("worker_prompt", prompt)
         return prompt
 
-    def get_validation_prompt(self, current_query: str, current_plan: Plan, full_script: str, last_code_execution_result: str) -> str:
+    def get_validation_prompt(self, current_query: str, current_plan: Plan, full_script: str) -> str:
         """
         构建用于Orchestrator验证最终结果的Prompt。
         这个Prompt要求LLM判断整个分析流程是否完整地回答了用户的问题,并给出总结或指出不足。
 
         Args:
             current_query (str): 用户当前轮的原始请求。
-            current_plan (Plan): 当前执行的完整计划。
+            current_plan (Plan): 当前执行的完整计划,包含每一步的结果。
             full_script (str): 本轮交互中所有被执行过的Python代码的完整脚本。
-            last_code_execution_result (str): 最后一个代码块执行后产生的标准输出(stdout)。
 
         Returns:
             str: 一个完整的、可以直接发送给LLM的Prompt字符串。
@@ -427,9 +426,13 @@ You must call a tool to complete the task. Your response must be a single JSON o
 
         history = self._get_formatted_history()
 
-        plan_summary = "\n".join(
-            [f"  - Step {s['step_id']} ({s.get('status', 'N/A')}): {s['task']}" for s in current_plan]
-        )
+        plan_summary_parts = []
+        for s in current_plan:
+            plan_summary_parts.append(f"  - Step {s['step_id']} ({s.get('status', 'N/A')}): {s['task']}")
+            if s.get('result'):
+                plan_summary_parts.append(f"    - Result:\n```\n{s['result']}\n```\n")
+        plan_summary = "\n".join(plan_summary_parts)
+
 
         prompt = f"""
 You are an expert data analyst. Your task is to assess whether a data analysis task has been successfully completed and, if so, provide a summary.
@@ -441,7 +444,7 @@ You are an expert data analyst. Your task is to assess whether a data analysis t
 {current_query}
 ---
 
-**Analysis Plan:**
+**Analysis Plan and Results:**
 ---
 {plan_summary}
 ---
@@ -453,17 +456,10 @@ You are an expert data analyst. Your task is to assess whether a data analysis t
 </script>
 ---
 
-**Final Output from the script:**
----
-<output>
-{last_code_execution_result}
-</output>
----
-
 **Assessment Task:**
 
-1.  **Analyze the results:** Carefully review the user's question, the analysis plan, the executed script, and the final output.
-2.  **Determine Completeness:** Has the user's question been fully and comprehensively answered, in line with the plan?
+1.  **Analyze the results:** Carefully review the user's question, the analysis plan with its step-by-step results, and the full executed script.
+2.  **Determine Completeness:** Has the user's question been fully and comprehensively answered, in line with the plan and its results?
 3.  **Provide a JSON Response:** Based on your assessment, respond in one of the following JSON formats:
 
     *   **If the question is fully answered, provide a summary:**
