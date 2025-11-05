@@ -10,6 +10,7 @@
 ### 安装所有必需的 Python 包:
 
 ```bash
+cd backend
 pip install -r requirements.txt
 ```
 
